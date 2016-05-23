@@ -1,0 +1,103 @@
+---
+title: "Synergies in Learning Form and Meaning"
+author: "Fourtassi & Dupoux"
+date: "May 4, 2016"
+output:
+  html_document:
+    number_sections: yes
+    toc: yes
+---
+
+Libraries.
+
+```{r}
+library(readr)
+library(Rmisc)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(langcog)
+library(lme4)
+theme_set(theme_bw())
+```
+
+Data. 
+
+```{r}
+d <- read_delim("data.txt", delim = "\t") %>%
+  filter(item != "filler", score > 0.5, session==1) 
+```
+
+Data summary
+
+```{r}
+
+
+phon <- d %>%
+  mutate(contrast=ident) %>%
+  mutate (type=ifelse(test == 'guta', 'learning', 'generalization')) %>%
+  group_by(session, condition, contrast, type) %>%
+  summarise( mean=mean(res),
+             sd=sd(res),
+             n=n()) %>%
+  mutate(se=sd/sqrt(n),
+         cil=mean-qt(1-(0.05/2),n-1)*se,
+         ciu=mean+qt(1-(0.05/2),n-1)*se
+  )
+  
+```
+
+Plot
+
+```{r}
+
+phon$type <- factor(phon$type,
+                    levels=c("learning","generalization"))
+
+plot1  <- ggplot(phon, aes(x = condition, y= mean, shape=contrast)) +
+  geom_pointrange(aes(ymin = cil, ymax = ciu), 
+                  position = position_dodge(width = .1))+
+ xlab("group") +ylab("% different")+ theme_bw()+theme(strip.text = element_text(size=17), text = element_text(size=17)) + scale_y_continuous(limits=c(-0.02, 1))+ geom_hline(yintercept=0.5, linetype="dotted")+
+  facet_grid(.~type)
+
+plot1
+```
+
+Models
+
+```{r}
+
+#Learning
+########
+
+Gu <- d %>%
+  filter(test=="guta", ident=="diff") 
+
+mGu <- glmer(res ~ condition + (1 | ID) , data = Gu, family = binomial)
+m0Gu <- glmer(res ~1+  (1 | ID) , data = Gu, family = binomial)  
+
+#Estimates and SE
+Summary(mGU)
+
+#p-value (Liklihood ratio test)
+anova(m0Gu, mGu, test="Chisq")
+
+
+#Learning
+##########
+
+Li <- d %>%
+  filter(test=="lita", ident=="diff") 
+
+mLi <- glmer(res ~ condition + (1 | ID) , data = Li, family = binomial)
+m0Li <- glmer(res ~1+  (1 | ID) , data = Li, family = binomial) 
+
+
+#Estimates and SE
+Summary(mLi)
+
+#p-value (Liklihood ratio test)
+anova(m0Li, mLi, test="Chisq")
+
+```
+
