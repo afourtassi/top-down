@@ -45,10 +45,7 @@ d_score <- d_no_twice %>%
   filter (score > 0.5) 
 
 d_quality <- d_score %>%
-  filter (quality=="good") %>%
-  group_by(ID)%>%
-  summarise(freq=n())%>%
-  nrow()
+  filter (quality=="good") 
 
 
 ```
