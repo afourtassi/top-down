@@ -1,0 +1,374 @@
+---
+title: "Synergies in Learning Form and Meaning"
+author: "Fourtassi & Dupoux"
+date: "November 23, 2018"
+output:
+  html_document:
+    number_sections: yes
+    toc: yes
+---
+
+Libraries.
+
+```{r}
+library(dplyr)
+library(tidyr)
+library(purrr)
+library(readr)
+library(ggplot2)
+library(langcog)
+library(boot)
+library(lme4)
+library(lazyeval)
+theme_set(theme_bw())
+
+```
+
+Helper to plot adjacent graphs (from cookbook-r.com)
+```{r}
+# Multiple plot function
+#
+# ggplot objects can be passed in ..., or to plotlist (as a list of ggplot objects)
+# - cols:   Number of columns in layout
+# - layout: A matrix specifying the layout. If present, 'cols' is ignored.
+#
+# If the layout is something like matrix(c(1,2,3,3), nrow=2, byrow=TRUE),
+# then plot 1 will go in the upper left, 2 will go in the upper right, and
+# 3 will go all the way across the bottom.
+#
+multiplot <- function(..., plotlist=NULL, file, cols=1, layout=NULL) {
+  library(grid)
+
+  # Make a list from the ... arguments and plotlist
+  plots <- c(list(...), plotlist)
+
+  numPlots = length(plots)
+
+  # If layout is NULL, then use 'cols' to determine layout
+  if (is.null(layout)) {
+    # Make the panel
+    # ncol: Number of columns of plots
+    # nrow: Number of rows needed, calculated from # of cols
+    layout <- matrix(seq(1, cols * ceiling(numPlots/cols)),
+                    ncol = cols, nrow = ceiling(numPlots/cols))
+  }
+
+ if (numPlots==1) {
+    print(plots[[1]])
+
+  } else {
+    # Set up the page
+    grid.newpage()
+    pushViewport(viewport(layout = grid.layout(nrow(layout), ncol(layout))))
+
+    # Make each plot, in the correct location
+    for (i in 1:numPlots) {
+      # Get the i,j matrix positions of the regions that contain this subplot
+      matchidx <- as.data.frame(which(layout == i, arr.ind = TRUE))
+
+      print(plots[[i]], vp = viewport(layout.pos.row = matchidx$row,
+                                      layout.pos.col = matchidx$col))
+    }
+  }
+}
+```
+
+```{r}
+library(generator)
+n <- 6
+set.seed(1)
+ashley_madison <- 
+  data.frame(name = r_full_names(n), 
+             snn = r_national_identification_numbers(n), 
+             dob = r_date_of_births(n), 
+             email = r_email_addresses(n), 
+             ip = r_ipv4_addresses(n), 
+             phone = r_phone_numbers(n), 
+             credit_card = r_credit_card_numbers(n), 
+             lat = r_latitudes(n), 
+             lon = r_longitudes(n), 
+             stringsAsFactors = FALSE)
+
+ashley_madison$dob <- anonymize(ashley_madison$dob, .algo = "crc32")
+
+hello <- ashley_madison %>%
+  hash(.algo = "crc32")
+```
+
+# Experiment 1
+
+MDS
+
+```{r}
+
+data_mds <-  read_delim("data/mds.txt", delim = " ") 
+
+plot_mds <- ggplot(data_mds, aes(x = dim1, y = dim2, label=label))+ 
+  geom_text(size=4)+
+  coord_fixed(ratio = 1) +
+  theme(strip.text = element_text(size=12), 
+        text = element_text(size=12))
+
+plot_mds
+
+```
+
+Plot distances
+```{r}
+
+#data_sim  <- read_delim("data/sim.txt", delim = " ") 
+#data_sim$ID <- anonymize(data_sim$ID, .algo = "crc32")
+#write.table(data_sim,"data/sim_anonym.txt",sep=" ",row.names=FALSE)
+
+data_sim  <- read_delim("data/sim_anonym.txt", delim = " ") 
+
+data_sim  <- read_delim("data/sim.txt", delim = " ") %>%
+  filter(type == "real") %>%
+  filter(concept1=="cow" | concept2=="cow") %>%
+  mutate(item= ifelse(concept1 == 'cow', concept2, concept1)) %>%
+  group_by(item, distance) %>%
+  multi_boot_standard(col = "rating")
+
+plot_sim <- ggplot(data_sim, aes(x = factor(distance), y = mean)) +
+  geom_pointrange(aes(ymin = ci_lower, ymax = ci_upper), 
+                  position = position_dodge(width = .1))+
+  geom_abline(intercept = -0.2666667, slope = 1.8633333, lty = 2)+
+  scale_y_continuous(limits = c(0, 10)) +
+  labs(x = "2nd referent", y = "Distance to 1st referent (cow)") +
+  scale_x_discrete(breaks=c(1,2,3,4,5),
+                  labels=c("cow2", "buffalo", "deer", "bird","car"))+
+ # coord_fixed(ratio = 0.7)+ 
+  theme(strip.text = element_text(size=12), 
+        text = element_text(size=12),
+        aspect.ratio = 1) 
+
+plot_sim
+
+```
+
+Combine both 
+
+```{r}
+multiplot(plot_mds, NULL, plot_sim, layout=matrix(c(1,3), nrow=1, byrow=TRUE))
+```
+
+# Experiment 2
+
+Data. 
+
+```{r}
+d <- read_delim("data/data.txt", delim = "\t") %>%
+  filter(item != "filler")
+
+#number of participants
+demo <- d %>%
+  group_by(ID)%>%
+  summarise(freq=n())%>%
+  mutate(twice=ifelse(freq > 16, TRUE, FALSE))%>%
+  select(-freq)
+
+d_no_twice <- d %>%
+  left_join(demo) %>%
+  filter(!twice) 
+
+d_score <- d_no_twice %>%
+  filter (score > 0.5) 
+
+d_quality <- d_score %>%
+  filter (quality=="good") 
+
+data <- d_quality %>%
+  rename(type=test, trial=ident, group=condition)
+
+```
+
+Data Summary
+```{r}
+
+av_after <- data %>%
+  filter(session==1) %>%
+  group_by(group, trial) %>%
+  multi_boot_standard(col = "res")
+
+
+av_before <- data %>%
+  filter(session==0) %>%
+  mutate (group=0) %>%
+  group_by(group, trial) %>%
+  multi_boot_standard(col = "res")
+
+av <- bind_rows(av_before,av_after)%>%
+  mutate(type="both")
+
+type_after <- data %>%
+  filter(session==1) %>%
+  group_by(group, type, trial) %>%
+  multi_boot_standard(col = "res")
+
+type_before <- data %>%
+  filter(session==0) %>%
+  mutate (group=0) %>%
+  group_by(group, type, trial) %>%
+  multi_boot_standard(col = "res")
+
+typ <- bind_rows(type_before,type_after)
+all <- bind_rows(av, typ)
+
+```
+
+Accuracy scores (not used)
+```{r}
+av_acc_after <- data %>%
+  filter(session==1) %>%
+  group_by(group, ID, trial) %>%
+  summarise(accType = mean(res)) %>%
+  mutate(subs=ifelse(trial == "same", -accType, accType))%>%
+  select(-accType) %>%
+  group_by(group, ID) %>%
+  summarise(accType = sum(subs)) %>%
+  group_by(group) %>%
+  multi_boot_standard(col = "accType")
+  
+av_acc_before <- data %>%
+  filter(session==0) %>%
+  mutate (group=0) %>%
+  group_by(group, ID, trial) %>%
+  summarise(accType = mean(res)) %>%
+  mutate(subs=ifelse(trial == "same", -accType, accType))%>%
+  select(-accType) %>%
+  group_by(group, ID) %>%
+  summarise(accType = sum(subs)) %>%
+  group_by(group) %>%
+  multi_boot_standard(col = "accType")
+  
+av_acc <- bind_rows(av_acc_before, av_acc_after) %>%
+  mutate(type="both")
+
+type_acc_after <- data %>%
+  filter(session==1) %>%
+  group_by(group, ID, type, trial) %>%
+  summarise(accType = mean(res)) %>%
+  mutate(subs=ifelse(trial == "same", -accType, accType))%>%
+  select(-accType) %>%
+  group_by(group, ID, type) %>%
+  summarise(accType = sum(subs)) %>%
+  group_by(group, type) %>%
+  multi_boot_standard(col = "accType")
+  
+type_acc_before <- data %>%
+  filter(session==0) %>%
+  mutate (group=0) %>%
+  group_by(group, ID, type, trial) %>%
+  summarise(accType = mean(res)) %>%
+  mutate(subs=ifelse(trial == "same", -accType, accType))%>%
+  select(-accType) %>%
+  group_by(group, ID, type) %>%
+  summarise(accType = sum(subs)) %>%
+  group_by(group, type) %>%
+  multi_boot_standard(col = "accType")
+  
+type_acc <- bind_rows(type_acc_before, type_acc_after)
+
+all_acc <- bind_rows(av_acc, type_acc)
+  
+```
+
+Main plot
+
+```{r fig.width=6, fig.height=3}
+
+
+ggplot(data= subset(all, type=="both"), aes(x = group, y= mean, shape=trial)) +
+  geom_pointrange(aes(ymin = ci_lower, ymax = ci_upper), 
+                  position = position_dodge(width = .03), size=0.5) +
+  geom_line(data = subset(all, type=='both' & trial=='diff' & group != '0' ))+
+ xlab("") + ylab("% different")+
+  theme_bw()+
+  theme(strip.text = element_text(size=15),
+        text = element_text(size=12), 
+        aspect.ratio = 0.7) +
+  scale_y_continuous(limits=c(-0.02, 0.9))+ 
+  geom_hline(yintercept=0.5, linetype="dotted")+ 
+  geom_vline(xintercept = 0.5,lty=5 ) 
+  #facet_grid(.~type)
+
+
+
+```
+
+Plot by condition
+
+```{r}
+
+item_data <- subset(all, type=="guta" | type=="lita") %>%
+  mutate(type2 = ifelse(type=="guta", "exposure word", "generalization word"))
+
+item_data$type2 <- factor(item_data$type2,
+                    levels=c("exposure word", "generalization word"))
+
+ggplot(item_data, aes(x = group, y= mean, shape=trial)) +
+  geom_pointrange(aes(ymin = ci_lower, ymax = ci_upper), 
+                  position = position_dodge(width = .03), size=0.5) +
+  geom_line(data = subset(item_data, trial=='diff' & group != '0' ))+
+ xlab("") +ylab("% different")+
+  theme_bw()+
+  theme(strip.text = element_text(size=15),
+        text = element_text(size=12), 
+        aspect.ratio = 0.7) +
+  scale_y_continuous(limits=c(-0.02, 0.9))+ 
+  geom_hline(yintercept=0.5, linetype="dotted")+ 
+  geom_vline(xintercept = 0.5,lty=5 ) +
+  facet_grid(.~type2)
+
+
+
+```
+Accuracy plots (not shown in the paper but similar)
+```{r}
+plot2  <- ggplot(all_acc, aes(x = group, y= mean, col=type)) +
+  geom_pointrange(aes(ymin = ci_lower, ymax = ci_upper), 
+                  position = position_dodge(width = .1), size=0.3) + 
+  geom_line(data = subset(all_acc, type=='guta' &  group != '0' ), lty = 2)+
+  geom_line(data = subset(all_acc, type=='lita' & group != '0' ),  lty = 2)+
+  geom_line(data = subset(all_acc, type=='both' & group != '0' ))+
+ xlab("group") +ylab("% different")+ theme_bw()+theme(strip.text = element_text(size=10), text = element_text(size=10)) + scale_y_continuous(limits=c(-0.02, 0.9))+ geom_vline(xintercept = 0.5,lty=5 )
+  #facet_grid(.~type)
+
+plot2
+```
+
+Models
+
+```{r}
+
+
+#All
+####
+
+both <- data %>%
+  filter(trial=="diff")
+  #filter(trial=="diff", session==1)
+  
+m_both <- glmer(res ~ group*session + trial+ (1 | ID),
+                data=  data,
+                family = binomial)
+
+summary(m_both)
+
+#texreg(m_both)
+
+
+#Simple effects
+guta <- glmer(res ~ group + (1|ID),
+                data = subset(data,
+                              trial=="diff" & session =='1' & type =='guta'), 
+                family = binomial)
+summary(guta)
+
+lita <- glmer(res ~ group + (1|ID),
+                data = subset(data, 
+                              trial=="diff" & session =='1' & type =='lita'), 
+                family = binomial)
+summary(lita)
+
+```
