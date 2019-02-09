@@ -16,6 +16,9 @@ library(tidyr)
 library(purrr)
 library(readr)
 library(ggplot2)
+library(ggdendro)
+library(dendextend)
+library(ggthemes)
 library(langcog)
 library(boot)
 library(lme4)
@@ -104,10 +107,12 @@ MDS
 data_mds <-  read_delim("data/mds.txt", delim = " ") 
 
 plot_mds <- ggplot(data_mds, aes(x = dim1, y = dim2, label=label))+ 
-  geom_text(size=4)+
+  geom_text(size=5)+
   coord_fixed(ratio = 1) +
-  theme(strip.text = element_text(size=12), 
-        text = element_text(size=12))
+  theme(strip.text = element_text(size=15), 
+        text = element_text(size=15),
+        axis.text = element_text(size = 20)) +
+  theme_few()
 
 plot_mds
 
@@ -120,9 +125,9 @@ Plot distances
 #data_sim$ID <- anonymize(data_sim$ID, .algo = "crc32")
 #write.table(data_sim,"data/sim_anonym.txt",sep=" ",row.names=FALSE)
 
-data_sim  <- read_delim("data/sim_anonym.txt", delim = " ") 
+data_sim_all  <- read_delim("data/sim_anonym.txt", delim = " ") 
 
-data_sim  <- read_delim("data/sim.txt", delim = " ") %>%
+data_sim  <- read_delim("data/sim_anonym.txt", delim = " ") %>%
   filter(type == "real") %>%
   filter(concept1=="cow" | concept2=="cow") %>%
   mutate(item= ifelse(concept1 == 'cow', concept2, concept1)) %>%
@@ -146,10 +151,56 @@ plot_sim
 
 ```
 
+Hierachcial clustering 
+```{r fig.width=2, fig.height=2}
+
+diss  <- read_delim("data/sim_anonym.txt", delim = " ") %>%
+  filter(type == "real") %>%
+  group_by(concept1, concept2) %>%
+  multi_boot_standard(col = "rating") %>%
+  select(-ci_lower, -ci_upper) %>%
+  spread(concept2, mean) %>%
+  ungroup()%>%
+  select(-concept1)%>%
+  rename(cow2 = cow) %>%
+  rename(cow = cow1) %>%
+  rename(buffalo = buffle)
+
+
+diss_mat <- data.matrix(diss)
+diag(diss_mat) <- 0
+diss_dist <- as.dist(diss_mat)
+hc <- hclust(diss_dist, method = "average")
+
+plot_clust <- hc %>% 
+  #as.dendrogram() %>%
+  #set("labels", c("car", "bird", "deer", "buffalo", "cow2", "cow")) %>% 
+  #set("labels_cex", 1.5) #%>%
+  plot()
+
+hcd <- as.dendrogram(hc)
+plot(hcd, type = "triangle", ylab='Cluster height')
+
+#plot_clust <- ggdendrogram(hc)
+
+
+#hcd <- as.dendrogram(hc)
+#hcd_gg <- hcd %>% set("labels", c("car", "bird", "deer", "buffalo", "cow2", "cow")) %>% 
+#  set("labels_cex", 2) %>%
+#  as.ggdend()
+
+#ggplot(hcd_gg, horitheme = theme_minimal())
+#MyClust
+
+#plot(hcd)
+```
+
 Combine both 
 
 ```{r}
-multiplot(plot_mds, NULL, plot_sim, layout=matrix(c(1,3), nrow=1, byrow=TRUE))
+#multiplot(plot_mds, NULL, plot_sim, layout=matrix(c(1,3), nrow=1, byrow=TRUE))
+
+multiplot(plot_mds, NULL, plot_clust , layout=matrix(c(1,3), nrow=1, byrow=TRUE))
 ```
 
 # Experiment 2
@@ -157,7 +208,7 @@ multiplot(plot_mds, NULL, plot_sim, layout=matrix(c(1,3), nrow=1, byrow=TRUE))
 Data. 
 
 ```{r}
-d <- read_delim("data/data.txt", delim = "\t") %>%
+d <- read_delim("data/data_anonym.txt", delim = " ") %>%
   filter(item != "filler")
 
 #number of participants
@@ -177,8 +228,7 @@ d_score <- d_no_twice %>%
 d_quality <- d_score %>%
   filter (quality=="good") 
 
-data <- d_quality %>%
-  rename(type=test, trial=ident, group=condition)
+data <- d_quality 
 
 ```
 
@@ -275,14 +325,14 @@ all_acc <- bind_rows(av_acc, type_acc)
 
 Main plot
 
-```{r fig.width=6, fig.height=3}
+```{r fig.width=3, fig.height=1.5}
 
 
 ggplot(data= subset(all, type=="both"), aes(x = group, y= mean, shape=trial)) +
   geom_pointrange(aes(ymin = ci_lower, ymax = ci_upper), 
                   position = position_dodge(width = .03), size=0.5) +
   geom_line(data = subset(all, type=='both' & trial=='diff' & group != '0' ))+
- xlab("") + ylab("% different")+
+ xlab("Taxonomic level") + ylab("% different")+
   theme_bw()+
   theme(strip.text = element_text(size=15),
         text = element_text(size=12), 
@@ -372,3 +422,67 @@ lita <- glmer(res ~ group + (1|ID),
 summary(lita)
 
 ```
+
+Exp 2
+
+
+```{r}
+data_cont <-  read_delim("data/data_exp2_sim_all.txt", delim = " ") %>%
+  filter(!category %in% c("apple2","sandwich"))
+
+data_cont_processed <- data_cont %>%
+  mutate(answer2 = tolower(answer),
+         answer3 = sub("s+$", "", answer2))
+
+#Frequencey of given responses
+View <- data_cont_processed %>%
+  group_by(distance, answer3) %>%
+  summarise(n0 = n()) %>%
+  mutate(p = n0/sum(n0)) 
+  
+
+all <- ggplot(data_cont, aes(x = distance, y= rating)) +
+  geom_smooth()+
+ xlab("") + ylab("Rating")+
+  theme_bw()+
+  theme(strip.text = element_text(size=15),
+        text = element_text(size=12), 
+        aspect.ratio = 0.7) 
+
+
+rate_sum <- data_cont %>%
+  group_by(distance) %>%
+  multi_boot_standard(col = "rating")
+
+rating_plot <- ggplot(rate_sum, aes(x = distance, y= mean)) +
+  geom_pointrange(aes(ymin = ci_lower, ymax = ci_upper), 
+                  position = position_dodge(width = .03), size=0.5) +
+  geom_line()+
+ xlab("Taxonomic level") + ylab("Rating")+
+  theme_bw()+
+  theme(strip.text = element_text(size=15),
+        text = element_text(size=12), 
+        aspect.ratio = 0.7) 
+
+
+rt_sum <- data_cont %>%
+  mutate(RT_s = RT/1000) %>%
+  group_by(distance) %>%
+  multi_boot_standard(col = "RT_s") 
+
+rt_plot <- ggplot(rt_sum, aes(x = distance, y= mean)) +
+  geom_pointrange(aes(ymin = ci_lower, ymax = ci_upper), 
+                  position = position_dodge(width = .03), size=0.5) +
+  geom_line()+
+ xlab("Taxonomic level") + ylab("RT (in seconds)")+
+  theme_bw()+
+  theme(strip.text = element_text(size=15),
+        text = element_text(size=12), 
+        aspect.ratio = 0.7) 
+  #facet_grid(.~type)
+
+
+multiplot(rating_plot, NULL, rt_plot, layout=matrix(c(1,3), nrow=1, byrow=TRUE))
+
+```
+

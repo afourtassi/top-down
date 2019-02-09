@@ -1,0 +1,8 @@
+ID category distance answer rating RT native problem
+subject_1 apple2 1 apples 1 4035 yes No
+subject_1 sandwich 2 food 1 3361 yes No
+subject_1 cow1 1 cows 1 3351 yes No
+subject_1 buffle 2 animals 1 5695 yes No
+subject_1 bird 4 animals 1 5363 yes No
+subject_1 car 5 none 9 11156 yes No
+subject_1 deer 3 animals 1 4584 yes No
